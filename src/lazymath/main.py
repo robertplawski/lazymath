@@ -87,7 +87,7 @@ async def upload_file(file: UploadFile = File(...)):
                     "solution": None,  # placeholder for solution
                 }
                 for key, expr in numbered_lettered.items()
-            ][:1]
+            ]
 
             for obj in exercise_objects:
                 obj["solution"] = get_solution(obj["expression"])
