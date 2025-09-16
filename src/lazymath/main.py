@@ -1,6 +1,6 @@
 # src/lazymath/main.py
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pix2text import Pix2Text
 import tempfile
@@ -9,6 +9,7 @@ import string
 import requests
 import json
 import sys
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -50,7 +51,6 @@ def get_solution(expression: str):
         print(e)
         return None
 
-
 @app.post("/upload_file")
 async def upload_file(file: UploadFile = File(...)):
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -59,51 +59,53 @@ async def upload_file(file: UploadFile = File(...)):
     filename = file.filename or "file"
     try:
         suffix = os.path.splitext(filename)[1]
-        with tempfile.NamedTemporaryFile(delete=True, suffix=suffix) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp.flush()
-            p2t = Pix2Text.from_config()
-            outs = p2t.recognize_text_formula(
-                tmp.name, resized_shape=768, return_text=False
-            )
-            # tesseract_text = pytesseract.image_to_string(tmp.name, lang="pol")
-            embeddings = [out["text"] for out in outs if out["type"] == "embedding"]
+        content = await file.read()
 
-            letters = list(string.ascii_lowercase[:6])  # a to f
-            num_letters = len(letters)
+        async def event_stream():
+            with tempfile.NamedTemporaryFile(delete=True, suffix=suffix) as tmp:
+                tmp.write(content)
+                tmp.flush()
 
-            # Assign number + letter
-            numbered_lettered = {}
-            for i, ex in enumerate(embeddings):
-                number = i // num_letters + 1
-                letter = letters[i % num_letters]
-                key = f"{number}.{letter}"
-                numbered_lettered[key] = ex
+                p2t = Pix2Text.from_config()
+                outs = p2t.recognize_text_formula(tmp.name, resized_shape=768, return_text=False)
+                embeddings = [out["text"] for out in outs if out["type"] == "embedding"]
 
-            exercise_objects = [
-                {
-                    "id": key,  # e.g., "1.a"
-                    "expression": expr,  # the LaTeX expression
-                    "solution": None,  # placeholder for solution
-                }
-                for key, expr in numbered_lettered.items()
-            ]
+                letters = list(string.ascii_lowercase[:6])
+                num_letters = len(letters)
 
-            for obj in exercise_objects:
-                obj["solution"] = get_solution(obj["expression"])
+                # Assign number + letter
+                numbered_lettered = {}
+                for i, ex in enumerate(embeddings):
+                    number = i // num_letters + 1
+                    letter = letters[i % num_letters]
+                    key = f"{number}.{letter}"
+                    numbered_lettered[key] = ex
 
-        return JSONResponse(
-            {
-                "filename": os.path.basename(filename),
-                "content_type": file.content_type,
-                "size": len(content),
-                "exercises": exercise_objects,
-            }
-        )
+                # Stream metadata first
+                yield json.dumps({
+                    "filename": os.path.basename(filename),
+                    "content_type": file.content_type,
+                    "size": len(content),
+                    "exercises": []
+                }) + "\n"
+
+                # Sequentially process each exercise
+                for key, expr in numbered_lettered.items():
+                    solution = get_solution(expr)  # blocking call
+                    exercise_obj = {
+                        "id": key,
+                        "expression": expr,
+                        "solution": solution
+                    }
+                    yield json.dumps(exercise_obj) + "\n"
+
+        return StreamingResponse(event_stream(), media_type="application/json")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 def main_function():
     import uvicorn
