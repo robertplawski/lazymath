@@ -1,0 +1,19 @@
+meta {
+  name: Get single solution
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8000/solution?expression=2x-1=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  expression: 2x-1=0
+}
+
+settings {
+  encodeUrl: true
+}

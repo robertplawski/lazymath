@@ -22,7 +22,7 @@ if not os.getenv("OPENROUTER_API_KEY"):
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-
+@app.get("/solution")
 def get_solution(expression: str):
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
@@ -44,13 +44,14 @@ def get_solution(expression: str):
     )
     result = response.json()
     try:
-        return result["choices"][0]["message"]["content"]
+        content = result["choices"][0]["message"]["content"]
+        return content
     except Exception as e:
         print(e)
         return None
 
 
-@app.post("/upload")
+@app.post("/upload_file")
 async def upload_file(file: UploadFile = File(...)):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Invalid file type")
@@ -103,30 +104,6 @@ async def upload_file(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Example route
-@app.get("/")
-async def read_root():
-    return {"message": "Pong!"}
-
-
-# Example route with parameters
-@app.get("/add/{a}/{b}")
-async def add_numbers(a: int, b: int):
-    return {"result": a + b}
-
-
-# Optional: using a Pydantic model for POST
-class Numbers(BaseModel):
-    a: int
-    b: int
-
-
-@app.post("/add")
-async def add_post(numbers: Numbers):
-    return {"result": numbers.a + numbers.b}
-
 
 def main_function():
     import uvicorn
